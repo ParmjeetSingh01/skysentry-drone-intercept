@@ -1,19 +1,18 @@
 import { useRef, useEffect, useState, useCallback } from "react";
+
 const WS_URL = process.env.REACT_APP_WS_URL || "ws://localhost:8000/ws/sim";
-const COLORS = { THREAT:"#ff2222", WARN:"#ffaa00", SAFE:"#00ff41" };
-const SC = { ONLINE:"#00ff41", CONNECTING:"#ffaa00", RECONNECTING:"#ffaa00", ERROR:"#ff2222" };
-const STATUS_COL = { ENGAGE:"#ff2222",ARM:"#ffaa00",PURSUIT:"#ffff00",TRACK:"#00ccff",PATROL:"#00ff41",INTERCEPTED:"#ff00ff",SEARCH:"#aaaaff" };
 
 function useSimWS() {
   const [frame, setFrame] = useState(null);
-  const [status, setStatus] = useState("CONNECTING");
-  const wsRef = useRef(null); const retryRef = useRef(null);
+  const [status, setStatus] = useState("connecting");
+  const wsRef = useRef(null);
+  const retryRef = useRef(null);
   const connect = useCallback(() => {
-    setStatus("CONNECTING");
+    setStatus("connecting");
     const ws = new WebSocket(WS_URL);
-    ws.onopen = () => setStatus("ONLINE");
-    ws.onclose = () => { setStatus("RECONNECTING"); retryRef.current = setTimeout(connect, 2000); };
-    ws.onerror = () => setStatus("ERROR");
+    ws.onopen = () => setStatus("online");
+    ws.onclose = () => { setStatus("reconnecting"); retryRef.current = setTimeout(connect, 2000); };
+    ws.onerror = () => setStatus("error");
     ws.onmessage = (e) => { try { setFrame(JSON.parse(e.data)); } catch {} };
     wsRef.current = ws;
   }, []);
@@ -21,117 +20,186 @@ function useSimWS() {
   return { frame, status };
 }
 
-function Arena({ frame, width=800, height=600 }) {
+const THREAT_COLOR = { THREAT: "#ef4444", WARN: "#f59e0b", SAFE: "#22c55e" };
+const STATUS_DOT = { online: "#22c55e", connecting: "#f59e0b", reconnecting: "#f59e0b", error: "#ef4444" };
+
+function RadarCanvas({ frame, width = 740, height = 500 }) {
   const canvasRef = useRef(null);
+  const tickRef = useRef(0);
   useEffect(() => {
     if (!frame) return;
-    const ctx = canvasRef.current.getContext("2d");
-    ctx.fillStyle="#000810"; ctx.fillRect(0,0,width,height);
-    ctx.strokeStyle="#001a00"; ctx.lineWidth=1;
-    for(let x=0;x<width;x+=40){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,height);ctx.stroke();}
-    for(let y=0;y<height;y+=40){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(width,y);ctx.stroke();}
-    const angle=(Date.now()/1250)%(2*Math.PI);
-    ctx.strokeStyle="rgba(0,255,65,0.4)"; ctx.lineWidth=2;
-    ctx.beginPath(); ctx.moveTo(width/2,height/2);
-    ctx.lineTo(width/2+Math.cos(angle)*900,height/2+Math.sin(angle)*900); ctx.stroke();
-    ctx.strokeStyle="#003300"; ctx.lineWidth=2; ctx.setLineDash([6,4]);
-    ctx.strokeRect(20,20,width-40,height-40); ctx.setLineDash([]);
-    (frame.threats||[]).forEach(d=>{
-      const col=COLORS[d.level]||"#fff", isTarget=d.id===frame.target_id;
-      ctx.strokeStyle=col+"55"; ctx.lineWidth=1.5;
-      ctx.beginPath(); ctx.moveTo(d.x,d.y); ctx.lineTo(d.x-d.vx*10,d.y-d.vy*10); ctx.stroke();
-      ctx.save(); ctx.translate(d.x,d.y); ctx.rotate(Math.atan2(d.vy,d.vx));
-      ctx.fillStyle=col; ctx.beginPath(); ctx.moveTo(12,0);ctx.lineTo(0,-6);ctx.lineTo(-8,0);ctx.lineTo(0,6);ctx.closePath();ctx.fill();
-      ctx.restore();
-      if(isTarget){
-        ctx.strokeStyle="#fff"; ctx.lineWidth=1.5; ctx.setLineDash([4,3]);
-        ctx.beginPath(); ctx.arc(d.x,d.y,24,0,2*Math.PI); ctx.stroke(); ctx.setLineDash([]);
-        ctx.strokeStyle="#ffffff66"; ctx.lineWidth=1; ctx.beginPath();
-        ctx.moveTo(d.x-34,d.y);ctx.lineTo(d.x+34,d.y);ctx.moveTo(d.x,d.y-34);ctx.lineTo(d.x,d.y+34);ctx.stroke();
-      }
-      ctx.fillStyle=col; ctx.font="11px 'Courier New'"; ctx.fillText(`[${d.level}] ${d.label}`,d.x+15,d.y-8);
-      ctx.fillStyle="#888"; ctx.font="10px 'Courier New'"; ctx.fillText(`${d.conf} · ${d.alt}m AGL`,d.x+15,d.y+5);
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    tickRef.current += 1;
+    ctx.fillStyle = "#0f172a";
+    ctx.fillRect(0, 0, width, height);
+    ctx.strokeStyle = "rgba(148,163,184,0.06)";
+    ctx.lineWidth = 1;
+    for (let x = 0; x < width; x += 60) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, height); ctx.stroke(); }
+    for (let y = 0; y < height; y += 60) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(width, y); ctx.stroke(); }
+    const cx = width / 2, cy = height / 2;
+    [80, 160, 240, 320].forEach(r => {
+      ctx.strokeStyle = "rgba(148,163,184,0.08)"; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.arc(cx, cy, r, 0, 2 * Math.PI); ctx.stroke();
     });
-    const ic=frame.interceptor;
-    if(ic){
-      const rad=Math.atan2(Math.sin((ic.heading-90)*Math.PI/180),Math.cos((ic.heading-90)*Math.PI/180));
-      ctx.save(); ctx.translate(ic.x,ic.y); ctx.rotate(rad);
-      ctx.fillStyle="#00ccff"; ctx.shadowColor="#00ccff"; ctx.shadowBlur=14;
-      ctx.beginPath(); ctx.moveTo(0,-16);ctx.lineTo(8,8);ctx.lineTo(0,2);ctx.lineTo(-8,8);ctx.closePath();ctx.fill();
+    const angle = (tickRef.current * 0.03) % (2 * Math.PI);
+    ctx.save(); ctx.translate(cx, cy);
+    ctx.strokeStyle = "rgba(34,197,94,0.5)"; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(Math.cos(angle) * 370, Math.sin(angle) * 370); ctx.stroke();
+    ctx.beginPath(); ctx.arc(0, 0, 370, angle - 0.6, angle);
+    ctx.fillStyle = "rgba(34,197,94,0.04)"; ctx.fill();
+    ctx.restore();
+    ctx.strokeStyle = "rgba(148,163,184,0.12)"; ctx.lineWidth = 1;
+    ctx.setLineDash([4, 6]); ctx.strokeRect(24, 24, width - 48, height - 48); ctx.setLineDash([]);
+    (frame.threats || []).forEach(d => {
+      const col = THREAT_COLOR[d.level] || "#94a3b8";
+      const isTarget = d.id === frame.target_id;
+      ctx.strokeStyle = col + "30"; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(d.x, d.y); ctx.lineTo(d.x - d.vx * 12, d.y - d.vy * 12); ctx.stroke();
+      ctx.save(); ctx.translate(d.x, d.y);
+      ctx.fillStyle = col + "22"; ctx.strokeStyle = col; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(0, 0, 9, 0, 2 * Math.PI); ctx.fill(); ctx.stroke();
+      const hdg = Math.atan2(d.vy, d.vx);
+      ctx.strokeStyle = col; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(Math.cos(hdg) * 14, Math.sin(hdg) * 14); ctx.stroke();
       ctx.restore();
-      const tgt=(frame.threats||[]).find(d=>d.id===frame.target_id);
-      if(tgt){
-        ctx.strokeStyle="#00ccff55"; ctx.lineWidth=1; ctx.setLineDash([4,4]);
-        ctx.beginPath();ctx.moveTo(ic.x,ic.y);ctx.lineTo(tgt.x,tgt.y);ctx.stroke();ctx.setLineDash([]);
-        const ip=frame.intercept?.intercept_pos;
-        if(ip){ctx.fillStyle="#ffffff33";ctx.beginPath();ctx.arc(ip[0],ip[1],7,0,2*Math.PI);ctx.fill();}
+      if (isTarget) {
+        ctx.strokeStyle = "#fff"; ctx.lineWidth = 1; ctx.setLineDash([3, 3]);
+        ctx.beginPath(); ctx.arc(d.x, d.y, 18, 0, 2 * Math.PI); ctx.stroke(); ctx.setLineDash([]);
       }
-      ctx.fillStyle="#00ccff"; ctx.font="bold 11px 'Courier New'";
-      ctx.fillText(`▲ INTERCEPTOR [${ic.status}]`,ic.x+14,ic.y-12);
+      ctx.fillStyle = col; ctx.font = "500 11px -apple-system,sans-serif";
+      ctx.fillText(d.label, d.x + 14, d.y - 4);
+      ctx.fillStyle = "rgba(148,163,184,0.8)"; ctx.font = "10px -apple-system,sans-serif";
+      ctx.fillText(`${d.alt}m  ·  ${d.conf}`, d.x + 14, d.y + 8);
+    });
+    const ic = frame.interceptor;
+    if (ic) {
+      const rad = Math.atan2(Math.sin((ic.heading - 90) * Math.PI / 180), Math.cos((ic.heading - 90) * Math.PI / 180));
+      ctx.save(); ctx.translate(ic.x, ic.y); ctx.rotate(rad);
+      ctx.fillStyle = "#3b82f6"; ctx.strokeStyle = "#93c5fd"; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(0, -13); ctx.lineTo(7, 7); ctx.lineTo(0, 3); ctx.lineTo(-7, 7);
+      ctx.closePath(); ctx.fill(); ctx.stroke(); ctx.restore();
+      const tgt = (frame.threats || []).find(d => d.id === frame.target_id);
+      if (tgt) {
+        ctx.strokeStyle = "rgba(59,130,246,0.3)"; ctx.lineWidth = 1; ctx.setLineDash([3, 5]);
+        ctx.beginPath(); ctx.moveTo(ic.x, ic.y); ctx.lineTo(tgt.x, tgt.y); ctx.stroke(); ctx.setLineDash([]);
+        const ip = frame.intercept?.intercept_pos;
+        if (ip) { ctx.strokeStyle = "rgba(255,255,255,0.2)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(ip[0], ip[1], 5, 0, 2 * Math.PI); ctx.stroke(); }
+      }
+      ctx.fillStyle = "#93c5fd"; ctx.font = "500 11px -apple-system,sans-serif";
+      ctx.fillText("Interceptor", ic.x + 14, ic.y - 4);
+      ctx.fillStyle = "rgba(148,163,184,0.7)"; ctx.font = "10px -apple-system,sans-serif";
+      ctx.fillText(ic.status, ic.x + 14, ic.y + 8);
     }
-    for(let y=0;y<height;y+=4){ctx.fillStyle="rgba(0,0,0,0.07)";ctx.fillRect(0,y,width,2);}
-  },[frame,width,height]);
-  return <canvas ref={canvasRef} width={width} height={height} style={{border:"1px solid #00ff41",boxShadow:"0 0 24px #00ff4144",display:"block"}}/>;
+  }, [frame, width, height]);
+  return <canvas ref={canvasRef} width={width} height={height} style={{ display: "block", borderRadius: 8, width: "100%", height: "auto" }} />;
+}
+
+function Badge({ label, color }) {
+  const bg = { red:"#450a0a",amber:"#451a03",blue:"#172554",green:"#052e16",gray:"#1e293b" };
+  const text = { red:"#fca5a5",amber:"#fcd34d",blue:"#93c5fd",green:"#86efac",gray:"#94a3b8" };
+  return <span style={{ background:bg[color]||bg.gray, color:text[color]||text.gray, fontSize:11, fontWeight:500, padding:"2px 8px", borderRadius:4 }}>{label}</span>;
+}
+
+function Stat({ label, value, color }) {
+  const colors = { red:"#ef4444",amber:"#f59e0b",blue:"#3b82f6",green:"#22c55e",white:"#f1f5f9" };
+  return (
+    <div style={{ padding:"11px 16px", borderBottom:"1px solid rgba(148,163,184,0.07)" }}>
+      <p style={{ fontSize:11, color:"#64748b", margin:"0 0 2px", letterSpacing:"0.04em", textTransform:"uppercase" }}>{label}</p>
+      <p style={{ fontSize:17, fontWeight:600, margin:0, color:colors[color]||"#f1f5f9", fontVariantNumeric:"tabular-nums" }}>{value ?? "—"}</p>
+    </div>
+  );
 }
 
 export default function App() {
   const { frame, status } = useSimWS();
-  const ic=frame?.interceptor||{}, int=frame?.intercept||{}, st=frame?.stats||{};
+  const ic = frame?.interceptor || {};
+  const int = frame?.intercept || {};
+  const st = frame?.stats || {};
+  const statusColor = { online:"#22c55e", connecting:"#f59e0b", reconnecting:"#f59e0b", error:"#ef4444" };
+  const icCol = { ENGAGE:"red",ARM:"amber",PURSUIT:"amber",TRACK:"blue",PATROL:"green",INTERCEPTED:"blue" };
   return (
-    <div style={{minHeight:"100vh",background:"#000",color:"#00ff41",fontFamily:"'Courier New',monospace",display:"flex",flexDirection:"column"}}>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 20px",borderBottom:"1px solid #003300",background:"#000d00"}}>
-        <div style={{fontSize:15,fontWeight:"bold",letterSpacing:3}}>◉ SKYSENTRY — AI DRONE INTERCEPT</div>
-        <div style={{display:"flex",gap:12,alignItems:"center",fontSize:12}}>
-          <span style={{color:SC[status]||"#fff"}}>● {status}</span>
-          <span style={{background:"#001a00",border:"1px solid #003300",color:"#556655",padding:"3px 8px",fontSize:10,letterSpacing:1}}>YOLO26 · NMS-FREE</span>
-          {frame&&<span style={{color:"#334433",fontSize:10}}>FRAME #{frame.frame}</span>}
-        </div>
-      </div>
-      <div style={{display:"flex",gap:16,padding:16,flex:1,alignItems:"flex-start"}}>
-        <div style={{display:"flex",flexDirection:"column",gap:8}}>
-          <div style={{fontSize:11,letterSpacing:2,color:"#556655"}}>▣ AERIAL SURVEILLANCE ARENA</div>
-          <Arena frame={frame} width={800} height={600}/>
-          <div style={{fontSize:10,color:"#556655"}}>
-            <span style={{color:"#ff2222"}}>■ THREAT</span>&nbsp;&nbsp;
-            <span style={{color:"#ffaa00"}}>■ WARN</span>&nbsp;&nbsp;
-            <span style={{color:"#00ccff"}}>▲ INTERCEPTOR</span>
+    <div style={{ minHeight:"100vh", background:"#0f172a", color:"#f1f5f9", fontFamily:"-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", display:"flex", flexDirection:"column" }}>
+      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"0 24px", height:56, borderBottom:"1px solid rgba(148,163,184,0.1)" }}>
+        <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+          <div style={{ width:32, height:32, borderRadius:6, background:"#1e3a5f", display:"flex", alignItems:"center", justifyContent:"center" }}>
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <path d="M8 1L14 4.5V11.5L8 15L2 11.5V4.5L8 1Z" stroke="#60a5fa" strokeWidth="1.5" fill="none"/>
+              <circle cx="8" cy="8" r="2" fill="#60a5fa"/>
+            </svg>
+          </div>
+          <div>
+            <p style={{ fontSize:14, fontWeight:600, margin:0 }}>SkySentry</p>
+            <p style={{ fontSize:11, color:"#475569", margin:0 }}>Aerial Defence System</p>
           </div>
         </div>
-        <div style={{background:"#000d00",border:"1px solid #00ff4144",padding:14,minWidth:230,fontFamily:"'Courier New',monospace",fontSize:12}}>
-          <div style={{color:"#00ff41",fontSize:11,letterSpacing:2,borderBottom:"1px solid #003300",paddingBottom:4,marginBottom:8}}>◈ INTERCEPTOR</div>
-          <Row l="STATUS"   v={ic.status} c={STATUS_COL[ic.status]||"#fff"} big/>
-          <Row l="POSITION" v={ic.x!=null?`${ic.x.toFixed(0)}, ${ic.y.toFixed(0)}`:"--"}/>
-          <Row l="HEADING"  v={ic.heading!=null?`${ic.heading.toFixed(1)}°`:"--"}/>
-          <div style={{borderTop:"1px solid #001a00",margin:"10px 0"}}/>
-          <div style={{color:"#00ff41",fontSize:11,letterSpacing:2,borderBottom:"1px solid #003300",paddingBottom:4,marginBottom:8}}>◈ INTERCEPT</div>
-          <Row l="DISTANCE" v={int.distance!=null?`${int.distance.toFixed(0)}px`:"--"}/>
-          <Row l="ETA"      v={int.eta!=null?`${int.eta.toFixed(1)}s`:"--"}/>
-          <Row l="STATUS"   v={int.status||"--"} c={STATUS_COL[int.status]||"#aaa"}/>
-          <div style={{borderTop:"1px solid #001a00",margin:"10px 0"}}/>
-          <div style={{color:"#00ff41",fontSize:11,letterSpacing:2,borderBottom:"1px solid #003300",paddingBottom:4,marginBottom:8}}>◈ THREATS</div>
-          <Row l="TOTAL"   v={st.total_threats??0}/>
-          <Row l="THREAT"  v={st.threat_count??0} c="#ff2222"/>
-          <Row l="WARN"    v={st.warn_count??0}   c="#ffaa00"/>
-          <Row l="ENGAGED" v={st.engaged?"YES":"NO"} c={st.engaged?"#ff2222":"#00ff41"}/>
-          {(frame?.threats||[]).length>0&&<>
-            <div style={{borderTop:"1px solid #001a00",margin:"10px 0"}}/>
-            <div style={{color:"#00ff41",fontSize:11,letterSpacing:2,borderBottom:"1px solid #003300",paddingBottom:4,marginBottom:8}}>◈ ACTIVE</div>
-            {frame.threats.map(d=>(
-              <div key={d.id} style={{borderLeft:`3px solid ${d.level==="THREAT"?"#ff2222":"#ffaa00"}`,padding:"4px 8px",marginBottom:6,background:d.id===frame.target_id?"#0d1a0d":"#050a05"}}>
-                <div style={{color:d.level==="THREAT"?"#ff2222":"#ffaa00",fontSize:11,fontWeight:"bold"}}>{d.level} · {d.label}</div>
-                <div style={{color:"#556655",fontSize:10}}>({d.x?.toFixed(0)},{d.y?.toFixed(0)}) · {d.alt}m · {d.conf}</div>
-                {d.id===frame.target_id&&<div style={{color:"#00ccff",fontSize:10}}>⬆ PRIMARY TARGET</div>}
-              </div>
-            ))}
-          </>}
+        <div style={{ display:"flex", alignItems:"center", gap:16 }}>
+          <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+            <div style={{ width:7, height:7, borderRadius:"50%", background:statusColor[status]||"#64748b" }}/>
+            <span style={{ fontSize:12, color:"#94a3b8", textTransform:"capitalize" }}>{status}</span>
+          </div>
+          <Badge label="YOLO26" color="blue"/>
+          <Badge label="Live" color="green"/>
+          {frame && <span style={{ fontSize:11, color:"#334155", fontVariantNumeric:"tabular-nums" }}>#{frame.frame}</span>}
         </div>
       </div>
-      <div style={{borderTop:"1px solid #003300",padding:"8px 20px",fontSize:10,color:"#334433",textAlign:"center"}}>
-        SkySentry v1.0 · YOLO26 NMS-free + Proportional Navigation · Patent-backed AI/IoT System
+      <div style={{ display:"flex", flex:1 }}>
+        <div style={{ flex:1, padding:20, display:"flex", flexDirection:"column", gap:12 }}>
+          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+            <div>
+              <p style={{ fontSize:13, fontWeight:500, margin:0, color:"#94a3b8" }}>Airspace Monitor</p>
+              <p style={{ fontSize:11, color:"#475569", margin:"2px 0 0" }}>Restricted zone · Real-time tracking</p>
+            </div>
+            <div style={{ display:"flex", gap:16, fontSize:11, color:"#475569" }}>
+              <span><span style={{ display:"inline-block", width:8, height:8, borderRadius:"50%", background:"#ef4444", marginRight:4 }}/>Threat</span>
+              <span><span style={{ display:"inline-block", width:8, height:8, borderRadius:"50%", background:"#f59e0b", marginRight:4 }}/>Warning</span>
+              <span><span style={{ display:"inline-block", width:8, height:8, borderRadius:"50%", background:"#3b82f6", marginRight:4 }}/>Interceptor</span>
+            </div>
+          </div>
+          <div style={{ background:"#0f172a", border:"1px solid rgba(148,163,184,0.1)", borderRadius:10, overflow:"hidden" }}>
+            <RadarCanvas frame={frame} width={740} height={500}/>
+          </div>
+          {(frame?.threats||[]).length > 0 && (
+            <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+              {frame.threats.map(d => (
+                <div key={d.id} style={{ background:"#1e293b", border:`1px solid ${d.id===frame.target_id?"rgba(59,130,246,0.4)":"rgba(148,163,184,0.08)"}`, borderRadius:8, padding:"8px 12px", display:"flex", alignItems:"center", gap:10 }}>
+                  <div style={{ width:8, height:8, borderRadius:"50%", background:THREAT_COLOR[d.level], flexShrink:0 }}/>
+                  <div>
+                    <p style={{ fontSize:12, fontWeight:500, margin:0, color:"#e2e8f0" }}>{d.label}</p>
+                    <p style={{ fontSize:11, color:"#64748b", margin:"1px 0 0" }}>{d.alt}m · conf {d.conf}</p>
+                  </div>
+                  {d.id===frame.target_id && <Badge label="Target" color="blue"/>}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        <div style={{ width:220, borderLeft:"1px solid rgba(148,163,184,0.08)", display:"flex", flexDirection:"column" }}>
+          <div style={{ padding:"14px 16px", borderBottom:"1px solid rgba(148,163,184,0.08)" }}>
+            <p style={{ fontSize:11, fontWeight:500, color:"#475569", margin:0, letterSpacing:"0.06em", textTransform:"uppercase" }}>Interceptor</p>
+          </div>
+          <Stat label="Status" value={ic.status||"—"} color={icCol[ic.status]||"white"}/>
+          <Stat label="Position" value={ic.x!=null?`${Math.round(ic.x)}, ${Math.round(ic.y)}`:"—"}/>
+          <Stat label="Heading" value={ic.heading!=null?`${ic.heading.toFixed(1)}°`:"—"}/>
+          <div style={{ padding:"14px 16px", borderBottom:"1px solid rgba(148,163,184,0.08)", marginTop:8 }}>
+            <p style={{ fontSize:11, fontWeight:500, color:"#475569", margin:0, letterSpacing:"0.06em", textTransform:"uppercase" }}>Intercept</p>
+          </div>
+          <Stat label="Distance" value={int.distance!=null?`${Math.round(int.distance)} px`:"—"}/>
+          <Stat label="ETA" value={int.eta!=null?`${int.eta.toFixed(1)} s`:"—"} color={int.eta<5?"red":int.eta<15?"amber":"white"}/>
+          <Stat label="Guidance" value={int.status||"—"}/>
+          <div style={{ padding:"14px 16px", borderBottom:"1px solid rgba(148,163,184,0.08)", marginTop:8 }}>
+            <p style={{ fontSize:11, fontWeight:500, color:"#475569", margin:0, letterSpacing:"0.06em", textTransform:"uppercase" }}>Threats</p>
+          </div>
+          <Stat label="Total" value={st.total_threats??0}/>
+          <Stat label="Hostile" value={st.threat_count??0} color={st.threat_count>0?"red":"white"}/>
+          <Stat label="Warning" value={st.warn_count??0} color={st.warn_count>0?"amber":"white"}/>
+          <Stat label="Engaged" value={st.engaged?"Yes":"No"} color={st.engaged?"red":"green"}/>
+          <div style={{ marginTop:"auto", padding:14, borderTop:"1px solid rgba(148,163,184,0.08)" }}>
+            <p style={{ fontSize:10, color:"#334155", margin:0, lineHeight:1.6 }}>YOLO26 · NMS-free · STAL<br/>Proportional Navigation</p>
+          </div>
+        </div>
       </div>
     </div>
   );
-}
-function Row({l,v,c="#00ff41",big=false}){
-  return <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}><span style={{color:"#556655"}}>{l}</span><span style={{color:c,fontWeight:big?"bold":"normal",fontSize:big?14:12}}>{v}</span></div>;
 }
