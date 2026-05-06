@@ -7,17 +7,17 @@ export default function Arena({data}){
     const{arena,drones,tracks,interceptor,target}=data;
     const W=arena?.w||1280,H=arena?.h||720;
     c.width=W;c.height=H;fr.current++;const f=fr.current;
-    ctx.fillStyle='#050a05';ctx.fillRect(0,0,W,H);
-    ctx.strokeStyle='rgba(0,255,100,0.04)';ctx.lineWidth=0.5;
+    ctx.fillStyle='#0a0f1e';ctx.fillRect(0,0,W,H);
+    ctx.strokeStyle='rgba(59,130,246,0.04)';ctx.lineWidth=0.5;
     for(let x=0;x<W;x+=64){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke();}
     for(let y=0;y<H;y+=64){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke();}
-    [120,240,360].forEach(r=>{ctx.beginPath();ctx.arc(W/2,H/2,r,0,Math.PI*2);ctx.strokeStyle='rgba(0,255,100,0.06)';ctx.lineWidth=1;ctx.stroke();});
+    [120,240,360].forEach(r=>{ctx.beginPath();ctx.arc(W/2,H/2,r,0,Math.PI*2);ctx.strokeStyle='rgba(59,130,246,0.06)';ctx.lineWidth=1;ctx.stroke();});
     const a=(f*.04)%(Math.PI*2);ctx.save();ctx.translate(W/2,H/2);ctx.rotate(a);
-    const g=ctx.createLinearGradient(0,0,700,0);g.addColorStop(0,'rgba(0,255,100,0.18)');g.addColorStop(1,'rgba(0,255,100,0)');
+    const g=ctx.createLinearGradient(0,0,700,0);g.addColorStop(0,'rgba(59,130,246,0.18)');g.addColorStop(1,'rgba(0,255,100,0)');
     ctx.strokeStyle=g;ctx.lineWidth=36;ctx.globalAlpha=0.7;ctx.beginPath();ctx.moveTo(0,0);ctx.lineTo(700,0);ctx.stroke();ctx.globalAlpha=1;ctx.restore();
     ctx.beginPath();ctx.arc(W/2,H/2,180,0,Math.PI*2);ctx.fillStyle='rgba(255,59,48,0.05)';ctx.fill();
     ctx.strokeStyle='rgba(255,59,48,0.2)';ctx.lineWidth=1.5;ctx.setLineDash([6,6]);ctx.stroke();ctx.setLineDash([]);
-    ctx.fillStyle='rgba(0,255,100,0.3)';ctx.font='10px monospace';ctx.textAlign='center';ctx.fillText('PROTECTED ZONE',W/2,H/2-188);
+    ctx.fillStyle='rgba(59,130,246,0.3)';ctx.font='10px monospace';ctx.textAlign='center';ctx.fillText('PROTECTED ZONE',W/2,H/2-188);
     for(const det of(drones||[])){
       let mt=null,md=1e9;
       for(const t of(tracks||[])){
@@ -44,7 +44,7 @@ export default function Arena({data}){
       if(mt){
         ctx.font='bold 10px monospace';ctx.fillStyle='#ff3b30';ctx.textAlign='left';
         ctx.fillText('TGT-'+mt.id+'  '+(det.conf*100).toFixed(0)+'%',x1,y1-14);
-        ctx.fillStyle='rgba(0,255,100,0.5)';ctx.font='10px monospace';
+        ctx.fillStyle='rgba(59,130,246,0.5)';ctx.font='10px monospace';
         ctx.fillText((det.class||'').toUpperCase(),x1,y1-4);
       }
       if(mt?.velocity){
@@ -78,8 +78,8 @@ export default function Arena({data}){
       ctx.font='bold 10px monospace';ctx.fillStyle='#00d4ff';ctx.textAlign='center';
       ctx.fillText('INTERCEPTOR',x,y+28);
     }
-    ctx.fillStyle='rgba(0,255,100,0.15)';ctx.font='10px monospace';ctx.textAlign='left';
-    ctx.fillText('SKYSENTRY AI  |  SIMULATION  |  KALMAN + INTERCEPT SOLVER',12,H-12);
+    ctx.fillStyle='rgba(59,130,246,0.15)';ctx.font='10px monospace';ctx.textAlign='left';
+    ctx.fillText('SkySentry  |  SIMULATION  |  KALMAN + INTERCEPT SOLVER',12,H-12);
   },[data]);
   return <canvas ref={ref} style={{width:'100%',height:'100%',objectFit:'contain',display:'block'}}/>;
 }

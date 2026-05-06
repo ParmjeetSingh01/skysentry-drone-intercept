@@ -1,17 +1,17 @@
 const M='"Share Tech Mono",monospace';
 function Row({label,value,alert}){
-  return <div style={{display:'flex',justifyContent:'space-between',padding:'4px 0',borderBottom:'1px solid rgba(0,255,100,0.06)'}}>
-    <span style={{color:'rgba(0,255,100,0.45)',fontSize:11,letterSpacing:1}}>{label}</span>
-    <span style={{color:alert?'#ff3b30':'#00ff64',fontFamily:M,fontSize:12,fontWeight:'bold'}}>{value??'—'}</span>
+  return <div style={{display:'flex',justifyContent:'space-between',padding:'4px 0',borderBottom:'1px solid rgba(59,130,246,0.06)'}}>
+    <span style={{color:'rgba(59,130,246,0.45)',fontSize:11,letterSpacing:1}}>{label}</span>
+    <span style={{color:alert?'#ff3b30':'#60a5fa',fontFamily:M,fontSize:12,fontWeight:'bold'}}>{value??'—'}</span>
   </div>;
 }
 export default function Panel({data,connected}){
   const t=data?.target,ic=t?.intercept,stats=data?.stats||{};
   const isAlert=data?.status?.includes('THREAT');
   return <div style={{display:'flex',flexDirection:'column',gap:14,fontFamily:M}}>
-    <div style={{padding:'10px 14px',border:'1px solid '+(isAlert?'#ff3b30':'#00ff64'),borderRadius:4,background:isAlert?'rgba(255,59,48,0.08)':'rgba(0,255,100,0.04)'}}>
-      <div style={{fontSize:10,color:'rgba(0,255,100,0.5)',letterSpacing:2,marginBottom:4}}>SYSTEM STATUS</div>
-      <div style={{fontSize:14,fontWeight:'bold',letterSpacing:2,color:isAlert?'#ff3b30':'#00ff64'}}>{connected?data?.status:'● CONNECTING...'}</div>
+    <div style={{padding:'10px 14px',border:'1px solid '+(isAlert?'#ff3b30':'#60a5fa'),borderRadius:4,background:isAlert?'rgba(255,59,48,0.08)':'rgba(59,130,246,0.04)'}}>
+      <div style={{fontSize:10,color:'rgba(59,130,246,0.5)',letterSpacing:2,marginBottom:4}}>SYSTEM STATUS</div>
+      <div style={{fontSize:14,fontWeight:'bold',letterSpacing:2,color:isAlert?'#ff3b30':'#60a5fa'}}>{connected?data?.status:'● CONNECTING...'}</div>
     </div>
     <div>
       <div style={{fontSize:10,color:'rgba(0,255,100,0.4)',letterSpacing:2,marginBottom:8}}>LIVE TELEMETRY</div>
