@@ -1,7 +1,9 @@
+node_modules/
 __pycache__/
 *.pyc
-node_modules/
+.env.local
 build/
-.env
-.env.production
 .DS_Store
+*.pt
+venv/
+/tmp/

@@ -1,205 +1,95 @@
-import { useRef, useEffect, useState, useCallback } from "react";
-
-const WS_URL = process.env.REACT_APP_WS_URL || "ws://localhost:8000/ws/sim";
-
-function useSimWS() {
-  const [frame, setFrame] = useState(null);
-  const [status, setStatus] = useState("connecting");
-  const wsRef = useRef(null);
-  const retryRef = useRef(null);
-  const connect = useCallback(() => {
-    setStatus("connecting");
-    const ws = new WebSocket(WS_URL);
-    ws.onopen = () => setStatus("online");
-    ws.onclose = () => { setStatus("reconnecting"); retryRef.current = setTimeout(connect, 2000); };
-    ws.onerror = () => setStatus("error");
-    ws.onmessage = (e) => { try { setFrame(JSON.parse(e.data)); } catch {} };
-    wsRef.current = ws;
-  }, []);
-  useEffect(() => { connect(); return () => { clearTimeout(retryRef.current); wsRef.current?.close(); }; }, [connect]);
-  return { frame, status };
-}
-
-const THREAT_COLOR = { THREAT: "#ef4444", WARN: "#f59e0b", SAFE: "#22c55e" };
-const STATUS_DOT = { online: "#22c55e", connecting: "#f59e0b", reconnecting: "#f59e0b", error: "#ef4444" };
-
-function RadarCanvas({ frame, width = 740, height = 500 }) {
-  const canvasRef = useRef(null);
-  const tickRef = useRef(0);
-  useEffect(() => {
-    if (!frame) return;
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    tickRef.current += 1;
-    ctx.fillStyle = "#0f172a";
-    ctx.fillRect(0, 0, width, height);
-    ctx.strokeStyle = "rgba(148,163,184,0.06)";
-    ctx.lineWidth = 1;
-    for (let x = 0; x < width; x += 60) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, height); ctx.stroke(); }
-    for (let y = 0; y < height; y += 60) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(width, y); ctx.stroke(); }
-    const cx = width / 2, cy = height / 2;
-    [80, 160, 240, 320].forEach(r => {
-      ctx.strokeStyle = "rgba(148,163,184,0.08)"; ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.arc(cx, cy, r, 0, 2 * Math.PI); ctx.stroke();
-    });
-    const angle = (tickRef.current * 0.03) % (2 * Math.PI);
-    ctx.save(); ctx.translate(cx, cy);
-    ctx.strokeStyle = "rgba(59,130,246,0.5)"; ctx.lineWidth = 1.5;
-    ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(Math.cos(angle) * 370, Math.sin(angle) * 370); ctx.stroke();
-    ctx.beginPath(); ctx.arc(0, 0, 370, angle - 0.6, angle);
-    ctx.fillStyle = "rgba(59,130,246,0.04)"; ctx.fill();
-    ctx.restore();
-    ctx.strokeStyle = "rgba(148,163,184,0.12)"; ctx.lineWidth = 1;
-    ctx.setLineDash([4, 6]); ctx.strokeRect(24, 24, width - 48, height - 48); ctx.setLineDash([]);
-    (frame.threats || []).forEach(d => {
-      const col = THREAT_COLOR[d.level] || "#94a3b8";
-      const isTarget = d.id === frame.target_id;
-      ctx.strokeStyle = col + "30"; ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.moveTo(d.x, d.y); ctx.lineTo(d.x - d.vx * 12, d.y - d.vy * 12); ctx.stroke();
-      ctx.save(); ctx.translate(d.x, d.y);
-      ctx.fillStyle = col + "22"; ctx.strokeStyle = col; ctx.lineWidth = 1.5;
-      ctx.beginPath(); ctx.arc(0, 0, 9, 0, 2 * Math.PI); ctx.fill(); ctx.stroke();
-      const hdg = Math.atan2(d.vy, d.vx);
-      ctx.strokeStyle = col; ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(Math.cos(hdg) * 14, Math.sin(hdg) * 14); ctx.stroke();
-      ctx.restore();
-      if (isTarget) {
-        ctx.strokeStyle = "#fff"; ctx.lineWidth = 1; ctx.setLineDash([3, 3]);
-        ctx.beginPath(); ctx.arc(d.x, d.y, 18, 0, 2 * Math.PI); ctx.stroke(); ctx.setLineDash([]);
-      }
-      ctx.fillStyle = col; ctx.font = "500 11px -apple-system,sans-serif";
-      ctx.fillText(d.label, d.x + 14, d.y - 4);
-      ctx.fillStyle = "rgba(148,163,184,0.8)"; ctx.font = "10px -apple-system,sans-serif";
-      ctx.fillText(`${d.alt}m  ·  ${d.conf}`, d.x + 14, d.y + 8);
-    });
-    const ic = frame.interceptor;
-    if (ic) {
-      const rad = Math.atan2(Math.sin((ic.heading - 90) * Math.PI / 180), Math.cos((ic.heading - 90) * Math.PI / 180));
-      ctx.save(); ctx.translate(ic.x, ic.y); ctx.rotate(rad);
-      ctx.fillStyle = "#3b82f6"; ctx.strokeStyle = "#93c5fd"; ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.moveTo(0, -13); ctx.lineTo(7, 7); ctx.lineTo(0, 3); ctx.lineTo(-7, 7);
-      ctx.closePath(); ctx.fill(); ctx.stroke(); ctx.restore();
-      const tgt = (frame.threats || []).find(d => d.id === frame.target_id);
-      if (tgt) {
-        ctx.strokeStyle = "rgba(59,130,246,0.3)"; ctx.lineWidth = 1; ctx.setLineDash([3, 5]);
-        ctx.beginPath(); ctx.moveTo(ic.x, ic.y); ctx.lineTo(tgt.x, tgt.y); ctx.stroke(); ctx.setLineDash([]);
-        const ip = frame.intercept?.intercept_pos;
-        if (ip) { ctx.strokeStyle = "rgba(255,255,255,0.2)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(ip[0], ip[1], 5, 0, 2 * Math.PI); ctx.stroke(); }
-      }
-      ctx.fillStyle = "#93c5fd"; ctx.font = "500 11px -apple-system,sans-serif";
-      ctx.fillText("Interceptor", ic.x + 14, ic.y - 4);
-      ctx.fillStyle = "rgba(148,163,184,0.7)"; ctx.font = "10px -apple-system,sans-serif";
-      ctx.fillText(ic.status, ic.x + 14, ic.y + 8);
-    }
-  }, [frame, width, height]);
-  return <canvas ref={canvasRef} width={width} height={height} style={{ display: "block", borderRadius: 8, width: "100%", height: "auto" }} />;
-}
-
-function Badge({ label, color }) {
-  const bg = { red:"#450a0a",amber:"#451a03",blue:"#172554",green:"#052e16",gray:"#1e293b" };
-  const text = { red:"#fca5a5",amber:"#fcd34d",blue:"#93c5fd",green:"#86efac",gray:"#94a3b8" };
-  return <span style={{ background:bg[color]||bg.gray, color:text[color]||text.gray, fontSize:11, fontWeight:500, padding:"2px 8px", borderRadius:4 }}>{label}</span>;
-}
-
-function Stat({ label, value, color }) {
-  const colors = { red:"#ef4444",amber:"#f59e0b",blue:"#3b82f6",green:"#22c55e",white:"#f1f5f9" };
-  return (
-    <div style={{ padding:"11px 16px", borderBottom:"1px solid rgba(148,163,184,0.07)" }}>
-      <p style={{ fontSize:11, color:"#64748b", margin:"0 0 2px", letterSpacing:"0.04em", textTransform:"uppercase" }}>{label}</p>
-      <p style={{ fontSize:17, fontWeight:600, margin:0, color:colors[color]||"#f1f5f9", fontVariantNumeric:"tabular-nums" }}>{value ?? "—"}</p>
+import{useState,useEffect}from'react';
+import Arena from'./components/Arena';
+import Panel from'./components/Panel';
+import ImageDetect from'./components/ImageDetect';
+import VideoDetect from'./components/VideoDetect';
+import WebcamDetect from'./components/WebcamDetect';
+import{useSimWS}from'./hooks/useSimWS';
+const M='"Share Tech Mono",monospace';
+const TABS=[{id:'SIM',icon:'🎯',label:'Simulation'},{id:'IMAGE',icon:'🖼',label:'Image'},{id:'VIDEO',icon:'🎬',label:'Video'},{id:'CAM',icon:'📷',label:'Webcam'}];
+export default function App(){
+  const{data,connected,send}=useSimWS();
+  const[tab,setTab]=useState('SIM');
+  const[clock,setClock]=useState('');
+  const isAlert=data?.status?.includes('THREAT')&&tab==='SIM';
+  useEffect(()=>{const x=setInterval(()=>setClock(new Date().toISOString().replace('T',' ').slice(0,19)+'Z'),1000);return()=>clearInterval(x);},[]);
+  return <div style={{width:'100vw',height:'100vh',background:'#050a05',display:'flex',flexDirection:'column',overflow:'hidden',fontFamily:M}}>
+    <div style={{position:'fixed',inset:0,pointerEvents:'none',zIndex:100,backgroundImage:'repeating-linear-gradient(0deg,rgba(0,0,0,0.03) 0px,rgba(0,0,0,0.03) 1px,transparent 1px,transparent 2px)'}}/>
+    {isAlert&&<div style={{position:'fixed',inset:0,pointerEvents:'none',zIndex:99,border:'2px solid rgba(255,59,48,0.45)',animation:'flash 1s infinite'}}/>}
+    {/* TOP BAR */}
+    <div style={{display:'flex',alignItems:'center',padding:'0 16px',height:50,background:'rgba(0,0,0,0.9)',borderBottom:'1px solid '+(isAlert?'rgba(255,59,48,0.5)':'rgba(0,255,100,0.15)'),flexShrink:0,gap:10}}>
+      <div style={{display:'flex',alignItems:'center',gap:8,marginRight:8}}>
+        <div style={{width:22,height:22,borderRadius:'50%',background:'conic-gradient(#00ff64 0deg,transparent 60deg,#00ff64 120deg,transparent 180deg,#00ff64 240deg,transparent 300deg)',display:'flex',alignItems:'center',justifyContent:'center'}}>
+          <div style={{width:9,height:9,borderRadius:'50%',background:'#050a05'}}/>
+        </div>
+        <span style={{fontSize:12,letterSpacing:3,color:'#00ff64',fontWeight:'bold'}}>SKYSENTRY</span>
+      </div>
+      {TABS.map(({id,icon,label})=>(
+        <button key={id} onClick={()=>setTab(id)} style={{padding:'5px 14px',border:'1px solid '+(tab===id?'#00ff64':'rgba(0,255,100,0.18)'),background:tab===id?'rgba(0,255,100,0.12)':'transparent',color:tab===id?'#00ff64':'rgba(0,255,100,0.45)',borderRadius:3,cursor:'pointer',fontFamily:M,fontSize:11,letterSpacing:1}}>{icon} {label}</button>
+      ))}
+      {tab==='SIM'&&<div style={{display:'flex',gap:6,marginLeft:8}}>
+        {[['spawn','+ SPAWN','#00ff64'],['remove','- REMOVE','#ff9f0a'],['reset','RESET','#ff3b30']].map(([a,l,c])=>(
+          <button key={a} onClick={()=>send(a)} style={{padding:'4px 12px',border:'1px solid '+c,background:'transparent',color:c,borderRadius:2,cursor:'pointer',fontFamily:M,fontSize:11}}>{l}</button>
+        ))}
+      </div>}
+      <div style={{marginLeft:'auto',display:'flex',alignItems:'center',gap:12}}>
+        <span style={{fontSize:10,color:'rgba(0,255,100,0.35)'}}>{clock}</span>
+        <div style={{display:'flex',alignItems:'center',gap:6,padding:'3px 10px',border:'1px solid '+(isAlert?'#ff3b30':'#00ff64'),borderRadius:2,background:isAlert?'rgba(255,59,48,0.08)':'rgba(0,255,100,0.04)'}}>
+          <div style={{width:5,height:5,borderRadius:'50%',background:connected?(isAlert?'#ff3b30':'#00ff64'):'#444'}}/>
+          <span style={{fontSize:10,letterSpacing:1,color:isAlert?'#ff3b30':'#00ff64'}}>{connected?(isAlert?'THREAT':'CLEAR'):'OFFLINE'}</span>
+        </div>
+      </div>
     </div>
-  );
-}
-
-export default function App() {
-  const { frame, status } = useSimWS();
-  const ic = frame?.interceptor || {};
-  const int = frame?.intercept || {};
-  const st = frame?.stats || {};
-  const statusColor = { online:"#22c55e", connecting:"#f59e0b", reconnecting:"#f59e0b", error:"#ef4444" };
-  const icCol = { ENGAGE:"red",ARM:"amber",PURSUIT:"amber",TRACK:"blue",PATROL:"green",INTERCEPTED:"blue" };
-  return (
-    <div style={{ minHeight:"100vh", background:"#0f172a", color:"#f1f5f9", fontFamily:"-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", display:"flex", flexDirection:"column" }}>
-      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"0 24px", height:56, borderBottom:"1px solid rgba(148,163,184,0.1)" }}>
-        <div style={{ display:"flex", alignItems:"center", gap:12 }}>
-          <div style={{ width:32, height:32, borderRadius:6, background:"#1e3a5f", display:"flex", alignItems:"center", justifyContent:"center" }}>
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <path d="M8 1L14 4.5V11.5L8 15L2 11.5V4.5L8 1Z" stroke="#60a5fa" strokeWidth="1.5" fill="none"/>
-              <circle cx="8" cy="8" r="2" fill="#60a5fa"/>
-            </svg>
-          </div>
+    {/* SIM TAB */}
+    {tab==='SIM'&&<>
+      <div style={{flex:1,display:'flex',overflow:'hidden'}}>
+        <div style={{flex:1,position:'relative',overflow:'hidden',background:'#030803',borderRight:'1px solid rgba(0,255,100,0.1)'}}>
+          <Arena data={data}/>
+          {!connected&&<div style={{position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center',background:'rgba(5,10,5,0.88)',flexDirection:'column',gap:16}}>
+            <div style={{width:36,height:36,border:'2px solid #00ff64',borderTopColor:'transparent',borderRadius:'50%',animation:'spin 1s linear infinite'}}/>
+            <div style={{color:'#00ff64',letterSpacing:3,fontSize:12}}>CONNECTING...</div>
+          </div>}
+        </div>
+        <div style={{width:268,background:'#060c06',overflowY:'auto',padding:14}}><Panel data={data} connected={connected}/></div>
+      </div>
+      <div style={{borderTop:'1px solid rgba(0,255,100,0.1)',background:'rgba(0,0,0,0.6)',padding:'4px 14px 6px',flexShrink:0}}>
+        <table style={{width:'100%',borderCollapse:'collapse'}}>
+          <thead><tr>{['ID','Class','X','Y','Vx','Vy','Score','TTI'].map(h=><th key={h} style={{color:'rgba(0,255,100,0.4)',fontSize:10,letterSpacing:2,padding:'2px 8px',textAlign:'left',borderBottom:'1px solid rgba(0,255,100,0.08)'}}>{h}</th>)}</tr></thead>
+          <tbody>{(data?.tracks||[]).map(t=>(
+            <tr key={t.id} style={{borderBottom:'1px solid rgba(0,255,100,0.04)'}}>
+              <td style={{color:'#ff9f0a',fontSize:11,padding:'3px 8px',fontWeight:'bold',fontFamily:M}}>TGT-{t.id}</td>
+              <td style={{color:'rgba(0,255,100,0.6)',fontSize:10,padding:'3px 8px',fontFamily:M}}>{t.dtype||'DRONE'}</td>
+              <td style={{color:'#00ff64',fontSize:11,padding:'3px 8px',fontFamily:M}}>{t.position?.[0]?.toFixed(0)}</td>
+              <td style={{color:'#00ff64',fontSize:11,padding:'3px 8px',fontFamily:M}}>{t.position?.[1]?.toFixed(0)}</td>
+              <td style={{color:'#00ff64',fontSize:11,padding:'3px 8px',fontFamily:M}}>{t.velocity?.[0]?.toFixed(1)}</td>
+              <td style={{color:'#00ff64',fontSize:11,padding:'3px 8px',fontFamily:M}}>{t.velocity?.[1]?.toFixed(1)}</td>
+              <td style={{color:((t.score||0)>.65)?'#ff3b30':'#34c759',fontSize:11,padding:'3px 8px',fontWeight:'bold',fontFamily:M}}>{((t.score||0)*100).toFixed(0)}%</td>
+              <td style={{color:'#00d4ff',fontSize:11,padding:'3px 8px',fontFamily:M}}>{t.intercept?.tti?.toFixed(1)??'—'}</td>
+            </tr>
+          ))}</tbody>
+        </table>
+      </div>
+    </>}
+    {/* OTHER TABS */}
+    {tab!=='SIM'&&<div style={{flex:1,overflowY:'auto',padding:24,scrollbarWidth:'thin',scrollbarColor:'rgba(0,255,100,0.2) transparent'}}>
+      <div style={{maxWidth:1040,margin:'0 auto'}}>
+        <div style={{marginBottom:20,padding:'10px 14px',border:'1px solid rgba(0,255,100,0.15)',borderRadius:6,background:'rgba(0,255,100,0.02)',display:'flex',alignItems:'center',gap:12}}>
+          <span style={{fontSize:22}}>{TABS.find(t=>t.id===tab)?.icon}</span>
           <div>
-            <p style={{ fontSize:14, fontWeight:600, margin:0 }}>SkySentry</p>
-            <p style={{ fontSize:11, color:"#475569", margin:0 }}>Aerial Defence System</p>
+            <div style={{fontSize:10,color:'rgba(0,255,100,0.4)',letterSpacing:2,marginBottom:2}}>MODE</div>
+            <div style={{fontSize:12,color:'#00ff64',fontWeight:'bold',letterSpacing:1}}>
+              {tab==='IMAGE'&&'IMAGE DETECTION — Upload a photo for YOLO bounding box analysis'}
+              {tab==='VIDEO'&&'VIDEO DETECTION — Upload footage for frame-by-frame YOLO analysis'}
+              {tab==='CAM'&&'LIVE WEBCAM — Real-time YOLO via WebSocket (allow camera access)'}
+            </div>
           </div>
+          <div style={{marginLeft:'auto',padding:'3px 10px',border:'1px solid '+(connected?'#00ff64':'#ff3b30'),borderRadius:2,fontSize:10,color:connected?'#00ff64':'#ff3b30',fontFamily:M}}>BACKEND {connected?'ONLINE':'OFFLINE'}</div>
         </div>
-        <div style={{ display:"flex", alignItems:"center", gap:16 }}>
-          <div style={{ display:"flex", alignItems:"center", gap:6 }}>
-            <div style={{ width:7, height:7, borderRadius:"50%", background:statusColor[status]||"#64748b" }}/>
-            <span style={{ fontSize:12, color:"#94a3b8", textTransform:"capitalize" }}>{status}</span>
-          </div>
-          <Badge label="YOLO26" color="blue"/>
-          <Badge label="Live" color="green"/>
-          {frame && <span style={{ fontSize:11, color:"#334155", fontVariantNumeric:"tabular-nums" }}>#{frame.frame}</span>}
-        </div>
+        {tab==='IMAGE'&&<ImageDetect/>}
+        {tab==='VIDEO'&&<VideoDetect/>}
+        {tab==='CAM'&&<WebcamDetect/>}
       </div>
-      <div style={{ display:"flex", flex:1 }}>
-        <div style={{ flex:1, padding:20, display:"flex", flexDirection:"column", gap:12 }}>
-          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between" }}>
-            <div>
-              <p style={{ fontSize:13, fontWeight:500, margin:0, color:"#94a3b8" }}>Airspace Monitor</p>
-              <p style={{ fontSize:11, color:"#475569", margin:"2px 0 0" }}>Restricted zone · Real-time tracking</p>
-            </div>
-            <div style={{ display:"flex", gap:16, fontSize:11, color:"#475569" }}>
-              <span><span style={{ display:"inline-block", width:8, height:8, borderRadius:"50%", background:"#ef4444", marginRight:4 }}/>Threat</span>
-              <span><span style={{ display:"inline-block", width:8, height:8, borderRadius:"50%", background:"#f59e0b", marginRight:4 }}/>Warning</span>
-              <span><span style={{ display:"inline-block", width:8, height:8, borderRadius:"50%", background:"#3b82f6", marginRight:4 }}/>Interceptor</span>
-            </div>
-          </div>
-          <div style={{ background:"#0f172a", border:"1px solid rgba(148,163,184,0.1)", borderRadius:10, overflow:"hidden" }}>
-            <RadarCanvas frame={frame} width={740} height={500}/>
-          </div>
-          {(frame?.threats||[]).length > 0 && (
-            <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
-              {frame.threats.map(d => (
-                <div key={d.id} style={{ background:"#1e293b", border:`1px solid ${d.id===frame.target_id?"rgba(59,130,246,0.4)":"rgba(148,163,184,0.08)"}`, borderRadius:8, padding:"8px 12px", display:"flex", alignItems:"center", gap:10 }}>
-                  <div style={{ width:8, height:8, borderRadius:"50%", background:THREAT_COLOR[d.level], flexShrink:0 }}/>
-                  <div>
-                    <p style={{ fontSize:12, fontWeight:500, margin:0, color:"#e2e8f0" }}>{d.label}</p>
-                    <p style={{ fontSize:11, color:"#64748b", margin:"1px 0 0" }}>{d.alt}m · conf {d.conf}</p>
-                  </div>
-                  {d.id===frame.target_id && <Badge label="Target" color="blue"/>}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-        <div style={{ width:220, borderLeft:"1px solid rgba(148,163,184,0.08)", display:"flex", flexDirection:"column" }}>
-          <div style={{ padding:"14px 16px", borderBottom:"1px solid rgba(148,163,184,0.08)" }}>
-            <p style={{ fontSize:11, fontWeight:500, color:"#475569", margin:0, letterSpacing:"0.06em", textTransform:"uppercase" }}>Interceptor</p>
-          </div>
-          <Stat label="Status" value={ic.status||"—"} color={icCol[ic.status]||"white"}/>
-          <Stat label="Position" value={ic.x!=null?`${Math.round(ic.x)}, ${Math.round(ic.y)}`:"—"}/>
-          <Stat label="Heading" value={ic.heading!=null?`${ic.heading.toFixed(1)}°`:"—"}/>
-          <div style={{ padding:"14px 16px", borderBottom:"1px solid rgba(148,163,184,0.08)", marginTop:8 }}>
-            <p style={{ fontSize:11, fontWeight:500, color:"#475569", margin:0, letterSpacing:"0.06em", textTransform:"uppercase" }}>Intercept</p>
-          </div>
-          <Stat label="Distance" value={int.distance!=null?`${Math.round(int.distance)} px`:"—"}/>
-          <Stat label="ETA" value={int.eta!=null?`${int.eta.toFixed(1)} s`:"—"} color={int.eta<5?"red":int.eta<15?"amber":"white"}/>
-          <Stat label="Guidance" value={int.status||"—"}/>
-          <div style={{ padding:"14px 16px", borderBottom:"1px solid rgba(148,163,184,0.08)", marginTop:8 }}>
-            <p style={{ fontSize:11, fontWeight:500, color:"#475569", margin:0, letterSpacing:"0.06em", textTransform:"uppercase" }}>Threats</p>
-          </div>
-          <Stat label="Total" value={st.total_threats??0}/>
-          <Stat label="Hostile" value={st.threat_count??0} color={st.threat_count>0?"red":"white"}/>
-          <Stat label="Warning" value={st.warn_count??0} color={st.warn_count>0?"amber":"white"}/>
-          <Stat label="Engaged" value={st.engaged?"Yes":"No"} color={st.engaged?"red":"green"}/>
-          <div style={{ marginTop:"auto", padding:14, borderTop:"1px solid rgba(148,163,184,0.08)" }}>
-            <p style={{ fontSize:10, color:"#334155", margin:0, lineHeight:1.6 }}>YOLO26 · NMS-free · STAL<br/>Proportional Navigation</p>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
+    </div>}
+    <style>{`@import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap');*{box-sizing:border-box;margin:0;padding:0;}::-webkit-scrollbar{width:4px;}::-webkit-scrollbar-thumb{background:rgba(0,255,100,0.2);}@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}@keyframes flash{0%,100%{opacity:1}50%{opacity:0.3}}@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.5}}`}</style>
+  </div>;
 }

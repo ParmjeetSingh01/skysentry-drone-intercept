@@ -1,18 +1,21 @@
-import { useEffect, useRef, useState, useCallback } from "react";
-const WS_URL = process.env.REACT_APP_WS_URL || "ws://localhost:8000/ws/sim";
-export default function useSimWS() {
-  const [frame, setFrame] = useState(null);
-  const [status, setStatus] = useState("CONNECTING");
-  const wsRef = useRef(null); const retryRef = useRef(null);
-  const connect = useCallback(() => {
-    setStatus("CONNECTING");
-    const ws = new WebSocket(WS_URL);
-    ws.onopen = () => setStatus("ONLINE");
-    ws.onclose = () => { setStatus("RECONNECTING"); retryRef.current = setTimeout(connect, 2000); };
-    ws.onerror = () => setStatus("ERROR");
-    ws.onmessage = (e) => { try { setFrame(JSON.parse(e.data)); } catch {} };
-    wsRef.current = ws;
-  }, []);
-  useEffect(() => { connect(); return () => { clearTimeout(retryRef.current); wsRef.current?.close(); }; }, [connect]);
-  return { frame, status };
+import{useState,useEffect,useRef,useCallback}from'react';
+const RAW=process.env.REACT_APP_API_URL||'http://localhost:8000';
+const WSS=RAW.replace(/^https/,'wss').replace(/^http/,'ws');
+export function useSimWS(){
+  const[data,setData]=useState(null);
+  const[connected,setConnected]=useState(false);
+  const wsRef=useRef(null);
+  useEffect(()=>{
+    let ws,rt;
+    function connect(){
+      ws=new WebSocket(WSS+'/ws/sim');wsRef.current=ws;
+      ws.onopen=()=>setConnected(true);
+      ws.onmessage=e=>{try{setData(JSON.parse(e.data));}catch{}};
+      ws.onerror=()=>{};
+      ws.onclose=()=>{setConnected(false);rt=setTimeout(connect,3000);};
+    }
+    connect();return()=>{clearTimeout(rt);ws?.close();};
+  },[]);
+  const send=useCallback(a=>{if(wsRef.current?.readyState===1)wsRef.current.send(JSON.stringify({action:a}));},[]);
+  return{data,connected,send};
 }
