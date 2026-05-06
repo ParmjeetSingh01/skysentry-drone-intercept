@@ -45,10 +45,10 @@ function RadarCanvas({ frame, width = 740, height = 500 }) {
     });
     const angle = (tickRef.current * 0.03) % (2 * Math.PI);
     ctx.save(); ctx.translate(cx, cy);
-    ctx.strokeStyle = "rgba(34,197,94,0.5)"; ctx.lineWidth = 1.5;
+    ctx.strokeStyle = "rgba(59,130,246,0.5)"; ctx.lineWidth = 1.5;
     ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(Math.cos(angle) * 370, Math.sin(angle) * 370); ctx.stroke();
     ctx.beginPath(); ctx.arc(0, 0, 370, angle - 0.6, angle);
-    ctx.fillStyle = "rgba(34,197,94,0.04)"; ctx.fill();
+    ctx.fillStyle = "rgba(59,130,246,0.04)"; ctx.fill();
     ctx.restore();
     ctx.strokeStyle = "rgba(148,163,184,0.12)"; ctx.lineWidth = 1;
     ctx.setLineDash([4, 6]); ctx.strokeRect(24, 24, width - 48, height - 48); ctx.setLineDash([]);
