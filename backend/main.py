@@ -258,3 +258,18 @@ async def ws_sim(ws:WebSocket):
             await ws.send_text(json.dumps(session.step()))
             await asyncio.sleep(1/30)
     except WebSocketDisconnect:pass
+
+# Keep-alive task — pings self every 14 min to prevent Render sleep
+import httpx
+from contextlib import asynccontextmanager
+
+@app.on_event("startup")
+async def keep_alive():
+    async def ping():
+        while True:
+            await asyncio.sleep(840)  # 14 minutes
+            try:
+                async with httpx.AsyncClient() as c:
+                    await c.get("https://skysentry-drone-intercept.onrender.com/health")
+            except: pass
+    asyncio.create_task(ping())
