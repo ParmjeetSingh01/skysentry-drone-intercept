@@ -7,3 +7,12 @@ build/
 *.pt
 venv/
 /tmp/
+sample_data/
+output/
+*.jpg
+*.jpeg
+*.png
+*.mp4
+*.avi
+*.pt
+*.onnx
